@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GitHub User Data</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="container">
+    <h1>GitHub Follower and Following Data Viewer</h1>
+    <form id="github-form">
+      <input type="text" id="username" placeholder="GitHub Username" required />
+      <input type="text" id="token" placeholder="GitHub Token" required />
+      <button type="submit">Fetch Data</button>
+    </form>
+    <div id="output"></div>
+  </div>
+
+  <script>
+    const form = document.getElementById('github-form');
+    const output = document.getElementById('output');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const username = document.getElementById('username').value;
+      const token = document.getElementById('token').value;
+
+      output.innerHTML = '<p>Loading...</p>';
+
+      try {
+        const response = await fetch('/api/github', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, token }),
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+          output.innerHTML = '<h2>Follower and Following Data:</h2>';
+
+          // Display Followers
+          const followersDiv = document.createElement('div');
+          followersDiv.innerHTML = '<h3>Followers</h3>';
+          data.followers.forEach((follower) => {
+            const followerDiv = document.createElement('div');
+            followerDiv.innerHTML = `<h4>${follower.name}</h4>`;
+            follower.repos.forEach((repo) => {
+              const repoDiv = document.createElement('p');
+              repoDiv.textContent = `Repo: ${repo.name}, Commits: ${repo.commitCount}`;
+              followerDiv.appendChild(repoDiv);
+            });
+            followersDiv.appendChild(followerDiv);
+          });
+          output.appendChild(followersDiv);
+
+          // Display Following
+          const followingDiv = document.createElement('div');
+          followingDiv.innerHTML = '<h3>Following</h3>';
+          data.following.forEach((following) => {
+            const followingDivUser = document.createElement('div');
+            followingDivUser.innerHTML = `<h4>${following.name}</h4>`;
+            following.repos.forEach((repo) => {
+              const repoDiv = document.createElement('p');
+              repoDiv.textContent = `Repo: ${repo.name}, Commits: ${repo.commitCount}`;
+              followingDivUser.appendChild(repoDiv);
+            });
+            followingDiv.appendChild(followingDivUser);
+          });
+          output.appendChild(followingDiv);
+        } else {
+          output.innerHTML = `<p>Error: ${data.error}</p>`;
+        }
+      } catch (err) {
+        output.innerHTML = `<p>Error: ${err.message}</p>`;
+      }
+    });
+  </script>
+</body>
+</html>
