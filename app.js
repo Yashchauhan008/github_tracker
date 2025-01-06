@@ -1,92 +1,115 @@
+require('dotenv').config();
 const express = require('express');
 const axios = require('axios');
 const path = require('path');
+const { ChartJSNodeCanvas } = require('chartjs-node-canvas');
+const NodeCache = require('node-cache');
 
 const app = express();
-const PORT = 3000;
+const cache = new NodeCache({ stdTTL: 3600 }); // Cache for 1 hour
+const PORT = process.env.PORT || 3000;
+const GITHUB_API_BASE = 'https://api.github.com';
+const token = process.env.GITHUB_TOKEN;
 
+// Middleware
 app.use(express.static(path.join(__dirname, 'public')));
-app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-// API endpoint to fetch GitHub data
-app.post('/api/github', async (req, res) => {
-  const { username, token } = req.body;
+// Function to get following list
+async function getFollowing(username) {
+    const cachedData = cache.get(username);
+    if (cachedData) {
+        console.log('Serving from cache');
+        return cachedData;
+    }
 
-  if (!username || !token) {
-    return res.status(400).json({ error: 'Username and token are required.' });
-  }
+    const headers = { Authorization: `Bearer ${token}` };
+    const url = `${GITHUB_API_BASE}/users/${username}/following`;
 
-  try {
-    const headers = {
-      Authorization: `token ${token}`,
-      Accept: 'application/vnd.github.v3+json',
+    try {
+        const response = await axios.get(url, { headers });
+        const followingList = response.data.map(user => user.login);
+        cache.set(username, followingList); // Cache the response
+        return followingList;
+    } catch (error) {
+        if (error.response) {
+            if (error.response.status === 403) {
+                throw new Error('API rate limit exceeded. Please try again later.');
+            } else if (error.response.status === 404) {
+                throw new Error('User not found');
+            }
+        }
+        throw new Error('Failed to fetch following list');
+    }
+}
+
+// Function to mock contribution streaks
+async function getContributionStreak(username) {
+    return Math.floor(Math.random() * 100); // Mocked streak data
+}
+
+// Function to generate chart
+async function generateChart(data) {
+    const width = 800;
+    const height = 400;
+    const chartJSNodeCanvas = new ChartJSNodeCanvas({ width, height });
+
+    const config = {
+        type: 'bar',
+        data: {
+            labels: data.map(d => d.username),
+            datasets: [
+                {
+                    label: 'Contribution Streak (Days)',
+                    data: data.map(d => d.streak),
+                    backgroundColor: 'rgba(75, 192, 192, 0.6)',
+                    borderColor: 'rgba(75, 192, 192, 1)',
+                    borderWidth: 1,
+                },
+            ],
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: { position: 'top' },
+                title: { display: true, text: 'GitHub Contribution Streaks' },
+            },
+        },
     };
 
-    // Fetch followers
-    const followersUrl = `https://api.github.com/users/${username}/followers`;
-    const followersResponse = await axios.get(followersUrl, { headers });
-    const followers = followersResponse.data;
+    return await chartJSNodeCanvas.renderToBuffer(config);
+}
 
-    // Fetch following
-    const followingUrl = `https://api.github.com/users/${username}/following`;
-    const followingResponse = await axios.get(followingUrl, { headers });
-    const following = followingResponse.data;
+// Route to handle form submission and display chart
+app.post('/streak', async (req, res) => {
+    const { username } = req.body;
 
-    // Helper function to fetch repos and commits for a user
-    const fetchUserData = async (user) => {
-      const reposUrl = `https://api.github.com/users/${user.login}/repos`;
-      const reposResponse = await axios.get(reposUrl, { headers });
-      const repos = reposResponse.data;
+    try {
+        const following = await getFollowing(username);
 
-      const userData = {
-        name: user.login,
-        repos: [],
-      };
-
-      for (const repo of repos) {
-        const repoName = repo.name;
-
-        // Skip repositories with no commits
-        if (repo.size === 0) {
-          userData.repos.push({
-            name: repoName,
-            commitCount: 0,
-          });
-          continue;
+        if (following.length === 0) {
+            return res.status(404).send('<h1>No following users found for this username</h1>');
         }
 
-        const commitsUrl = `https://api.github.com/repos/${user.login}/${repoName}/commits`;
-        try {
-          const commitsResponse = await axios.get(commitsUrl, { headers });
-          const commits = commitsResponse.data;
-          userData.repos.push({
-            name: repoName,
-            commitCount: commits.length,
-          });
-        } catch (err) {
-          console.log(`Error fetching commits for ${repoName}:`, err.message);
-          userData.repos.push({
-            name: repoName,
-            commitCount: 'Error fetching commits',
-          });
-        }
-      }
+        const streakData = await Promise.all(
+            following.map(async (user) => {
+                const streak = await getContributionStreak(user);
+                return { username: user, streak };
+            })
+        );
 
-      return userData;
-    };
+        const chartBuffer = await generateChart(streakData);
 
-    // Fetch data for followers and following
-    const followersData = await Promise.all(followers.map(fetchUserData));
-    const followingData = await Promise.all(following.map(fetchUserData));
-
-    res.json({ followers: followersData, following: followingData });
-  } catch (err) {
-    console.error('Error fetching data:', err.message);
-    res.status(500).json({ error: err.message });
-  }
+        res.set('Content-Type', 'image/png');
+        res.send(chartBuffer);
+    } catch (error) {
+        console.error('Error:', error.message);
+        res.status(500).send(`<h1>Error: ${error.message}</h1>`);
+    }
 });
 
 // Start the server
 app.listen(PORT, () => {
-  console.log(`Server running at http://localhost:${PORT}`);
+    console.log(`Server running at http://localhost:${PORT}`);
 });
+
