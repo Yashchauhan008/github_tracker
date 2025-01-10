@@ -1,42 +1,143 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>GitHub Contribution Streak Chart</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            text-align: center;
-            margin-top: 50px;
-        }
-        form {
-            margin-bottom: 20px;
-        }
-        input[type="text"] {
-            padding: 10px;
-            width: 300px;
-            border: 1px solid #ccc;
-            border-radius: 5px;
-        }
-        input[type="submit"] {
-            padding: 10px 20px;
-            border: none;
-            border-radius: 5px;
-            background-color: #007bff;
-            color: white;
-            cursor: pointer;
-        }
-        input[type="submit"]:hover {
-            background-color: #0056b3;
-        }
-    </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GitHub Follower and Following Counts</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      background-color: #f4f4f4;
+    }
+
+    .container {
+      max-width: 600px;
+      margin: 50px auto;
+      padding: 20px;
+      background: #fff;
+      box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+      border-radius: 8px;
+    }
+
+    h1 {
+      margin-bottom: 20px;
+    }
+
+    form input {
+      padding: 10px;
+      width: 70%;
+      margin-right: 10px;
+    }
+
+    form button {
+      padding: 10px 20px;
+    }
+
+    .error {
+      color: red;
+      margin-top: 20px;
+    }
+
+    .counts {
+      margin-top: 20px;
+      font-size: 20px;
+      color: #333;
+    }
+
+    ul {
+      list-style-type: none;
+      padding: 0;
+    }
+
+    ul li {
+      padding: 5px;
+      background: #f1f1f1;
+      margin-bottom: 5px;
+    }
+  </style>
 </head>
 <body>
-    <h1>GitHub Contribution Streak Chart</h1>
-    <form action="/streak" method="POST">
-        <input type="text" name="username" placeholder="Enter GitHub username" required />
-        <input type="submit" value="Get Streak Chart" />
+  <div class="container">
+    <h1>GitHub Follower and Following Count</h1>
+    <form id="usernameForm">
+      <input type="text" id="username" placeholder="Enter GitHub username" required />
+      <button type="submit">Get Counts</button>
     </form>
+    
+    <div id="results" class="counts" style="display: none;">
+      <h2>Results for <span id="userNameDisplay"></span></h2>
+      <p>User's Streak: <strong id="userStreak"></strong> days</p>
+      <p>Followers: <strong id="followersCount"></strong></p>
+      <p>Following: <strong id="followingCount"></strong></p>
+      <h3>Followers List:</h3>
+      <ul id="followersList"></ul>
+      <h3>Following List:</h3>
+      <ul id="followingList"></ul>
+    </div>
+    
+    <div id="errorMessage" class="error" style="display: none;"></div>
+  </div>
+
+  <script>
+    document.getElementById('usernameForm').addEventListener('submit', function (event) {
+      event.preventDefault(); // Prevent form submission
+
+      const username = document.getElementById('username').value;
+
+      // Show loading message
+      document.getElementById('results').style.display = 'none';
+      document.getElementById('errorMessage').style.display = 'none';
+
+      fetch('/get-followers-following', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: `username=${username}`,
+      })
+      .then(response => response.json())
+      .then(data => {
+        if (data.error) {
+          // Show error message
+          document.getElementById('errorMessage').innerText = data.error;
+          document.getElementById('errorMessage').style.display = 'block';
+        } else {
+          // Show results
+          document.getElementById('userNameDisplay').innerText = data.username;
+          document.getElementById('userStreak').innerText = data.userStreak;
+          document.getElementById('followersCount').innerText = data.followersCount;
+          document.getElementById('followingCount').innerText = data.followingCount;
+
+          const followersList = document.getElementById('followersList');
+          const followingList = document.getElementById('followingList');
+
+          // Clear previous lists
+          followersList.innerHTML = '';
+          followingList.innerHTML = '';
+
+          // Add new list items
+          data.followersList.forEach(follower => {
+            const listItem = document.createElement('li');
+            listItem.innerText = `${follower.username} - Streak: ${follower.streak} days`;
+            followersList.appendChild(listItem);
+          });
+
+          data.followingList.forEach(following => {
+            const listItem = document.createElement('li');
+            listItem.innerText = `${following.username} - Streak: ${following.streak} days`;
+            followingList.appendChild(listItem);
+          });
+
+          // Show the results
+          document.getElementById('results').style.display = 'block';
+        }
+      })
+      .catch(error => {
+        document.getElementById('errorMessage').innerText = `Error: ${error.message}`;
+        document.getElementById('errorMessage').style.display = 'block';
+      });
+    });
+  </script>
 </body>
 </html>

@@ -1,115 +1,159 @@
-require('dotenv').config();
-const express = require('express');
-const axios = require('axios');
-const path = require('path');
-const { ChartJSNodeCanvas } = require('chartjs-node-canvas');
-const NodeCache = require('node-cache');
+import express from 'express';
+import fetch from 'node-fetch';
+import bodyParser from 'body-parser';
+import path from 'path';
+import dotenv from 'dotenv';  // Import dotenv
+
+// Load environment variables from .env file
+dotenv.config();
 
 const app = express();
-const cache = new NodeCache({ stdTTL: 3600 }); // Cache for 1 hour
-const PORT = process.env.PORT || 3000;
-const GITHUB_API_BASE = 'https://api.github.com';
-const token = process.env.GITHUB_TOKEN;
+const PORT = 3000;
+const GITHUB_TOKEN = process.env.GITHUB_TOKEN; // Replace with your GitHub token
 
 // Middleware
-app.use(express.static(path.join(__dirname, 'public')));
-app.use(express.urlencoded({ extended: true }));
+app.use(bodyParser.urlencoded({ extended: true }));
+app.use(express.static('public'));
 
-// Function to get following list
-async function getFollowing(username) {
-    const cachedData = cache.get(username);
-    if (cachedData) {
-        console.log('Serving from cache');
-        return cachedData;
+// Helper function to calculate streaks
+const calculateStreak = (events) => {
+  if (!events || events.length === 0) return 0;
+
+  // Get the dates of the contributions (exclude the last day's data)
+  const dates = events.map(event => new Date(event.created_at).toISOString().split('T')[0]);
+
+  // Remove duplicates
+  const uniqueDates = [...new Set(dates)];
+
+  // Sort the dates in ascending order
+  uniqueDates.sort((a, b) => new Date(a) - new Date(b));
+
+  // Calculate the streak, excluding the last day (index of the streak is length - 2)
+  let streak = 0;
+
+  // Iterate through dates, excluding the last one
+  for (let i = 0; i < uniqueDates.length - 1; i++) {
+    const prevDate = new Date(uniqueDates[i]);
+    const currentDate = new Date(uniqueDates[i + 1]);
+
+    // Check if the dates are consecutive (1 day apart)
+    if ((currentDate - prevDate) === 86400000) {
+      streak++;
+    }
+  }
+
+  return streak;
+};
+
+// Serve the static HTML page
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// Handle the POST request for fetching follower and following lists
+app.post('/get-followers-following', async (req, res) => {
+  const username = req.body.username;
+
+  // Define URLs to fetch followers and following data
+  const followersUrl = `https://api.github.com/users/${username}/followers`;
+  const followingUrl = `https://api.github.com/users/${username}/following`;
+
+  try {
+    // Fetch the user data (for calculating their own streak)
+    const userEventsUrl = `https://api.github.com/users/${username}/events/public`;
+    const userEventsResponse = await fetch(userEventsUrl, {
+      headers: {
+        "Authorization": `Bearer ${GITHUB_TOKEN}`,
+        "Content-Type": "application/json"
+      }
+    });
+
+    if (!userEventsResponse.ok) {
+      throw new Error(`Failed to fetch user events. Status: ${userEventsResponse.status}`);
     }
 
-    const headers = { Authorization: `Bearer ${token}` };
-    const url = `${GITHUB_API_BASE}/users/${username}/following`;
+    const userEventsData = await userEventsResponse.json();
+    const userStreak = calculateStreak(userEventsData);
 
-    try {
-        const response = await axios.get(url, { headers });
-        const followingList = response.data.map(user => user.login);
-        cache.set(username, followingList); // Cache the response
-        return followingList;
-    } catch (error) {
-        if (error.response) {
-            if (error.response.status === 403) {
-                throw new Error('API rate limit exceeded. Please try again later.');
-            } else if (error.response.status === 404) {
-                throw new Error('User not found');
-            }
+    // Fetch followers
+    const followersResponse = await fetch(followersUrl, {
+      headers: {
+        "Authorization": `Bearer ${GITHUB_TOKEN}`,
+        "Content-Type": "application/json"
+      }
+    });
+
+    if (!followersResponse.ok) {
+      throw new Error(`Failed to fetch followers. Status: ${followersResponse.status}`);
+    }
+
+    const followersData = await followersResponse.json();
+
+    // Fetch following
+    const followingResponse = await fetch(followingUrl, {
+      headers: {
+        "Authorization": `Bearer ${GITHUB_TOKEN}`,
+        "Content-Type": "application/json"
+      }
+    });
+
+    if (!followingResponse.ok) {
+      throw new Error(`Failed to fetch following. Status: ${followingResponse.status}`);
+    }
+
+    const followingData = await followingResponse.json();
+
+    // Handle if followers or following are empty or not returned as arrays
+    if (!Array.isArray(followersData) || !Array.isArray(followingData)) {
+      return res.json({
+        error: `Unable to fetch followers/following data for user: ${username}`,
+      });
+    }
+
+    // Function to fetch the streak of a user
+    const fetchUserStreak = async (user) => {
+      const eventsUrl = `https://api.github.com/users/${user.login}/events/public`;
+      const eventsResponse = await fetch(eventsUrl, {
+        headers: {
+          "Authorization": `Bearer ${GITHUB_TOKEN}`,
+          "Content-Type": "application/json"
         }
-        throw new Error('Failed to fetch following list');
-    }
-}
-
-// Function to mock contribution streaks
-async function getContributionStreak(username) {
-    return Math.floor(Math.random() * 100); // Mocked streak data
-}
-
-// Function to generate chart
-async function generateChart(data) {
-    const width = 800;
-    const height = 400;
-    const chartJSNodeCanvas = new ChartJSNodeCanvas({ width, height });
-
-    const config = {
-        type: 'bar',
-        data: {
-            labels: data.map(d => d.username),
-            datasets: [
-                {
-                    label: 'Contribution Streak (Days)',
-                    data: data.map(d => d.streak),
-                    backgroundColor: 'rgba(75, 192, 192, 0.6)',
-                    borderColor: 'rgba(75, 192, 192, 1)',
-                    borderWidth: 1,
-                },
-            ],
-        },
-        options: {
-            responsive: true,
-            plugins: {
-                legend: { position: 'top' },
-                title: { display: true, text: 'GitHub Contribution Streaks' },
-            },
-        },
+      });
+      if (!eventsResponse.ok) {
+        return { username: user.login, streak: 0 };
+      }
+      const eventsData = await eventsResponse.json();
+      const streak = calculateStreak(eventsData);
+      return { username: user.login, streak };
     };
 
-    return await chartJSNodeCanvas.renderToBuffer(config);
-}
+    // Fetch streaks for followers and following
+    const followersWithStreak = await Promise.all(followersData.map(fetchUserStreak));
+    const followingWithStreak = await Promise.all(followingData.map(fetchUserStreak));
 
-// Route to handle form submission and display chart
-app.post('/streak', async (req, res) => {
-    const { username } = req.body;
+    // Get the count of followers and following
+    const followersCount = followersData.length;
+    const followingCount = followingData.length;
 
-    try {
-        const following = await getFollowing(username);
-
-        if (following.length === 0) {
-            return res.status(404).send('<h1>No following users found for this username</h1>');
-        }
-
-        const streakData = await Promise.all(
-            following.map(async (user) => {
-                const streak = await getContributionStreak(user);
-                return { username: user, streak };
-            })
-        );
-
-        const chartBuffer = await generateChart(streakData);
-
-        res.set('Content-Type', 'image/png');
-        res.send(chartBuffer);
-    } catch (error) {
-        console.error('Error:', error.message);
-        res.status(500).send(`<h1>Error: ${error.message}</h1>`);
-    }
+    // Send back the JSON response with the follower and following lists and their streaks
+    return res.json({
+      username: username,
+      userStreak: userStreak,
+      followersCount: followersCount,
+      followingCount: followingCount,
+      followersList: followersWithStreak,
+      followingList: followingWithStreak,
+    });
+  } catch (error) {
+    // Log error details for debugging
+    console.error(error.message);
+    return res.json({
+      error: `Failed to fetch data for user: ${username}. Error: ${error.message}`,
+    });
+  }
 });
 
 // Start the server
 app.listen(PORT, () => {
-    console.log(`Server running at http://localhost:${PORT}`);
+  console.log(`Server is running on http://localhost:${PORT}`);
 });
-
