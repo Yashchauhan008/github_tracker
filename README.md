@@ -58,14 +58,6 @@ After starting the application, log in with your GitHub account to access your f
 - Enhance UI/UX for better user experience.
 
 
-## ❔ FAQ
-
-**Q: How does this app access my GitHub data?**  
-A: The app uses GitHub's API to fetch follower and following data after user authentication.
-
-**Q: Is my data safe?**  
-A: Yes, we prioritize user privacy and do not store any personal data.
-
 
 ## 📫 Contact
 Your Name - [@your_twitter_handle](https://twitter.com/yash_chauhan_88) - yashchauhan1775@gmail.com
